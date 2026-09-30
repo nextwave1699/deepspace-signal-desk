@@ -143,3 +143,9 @@ describe('signals', () => {
     expect(entries[0]).toMatchObject({ evidenceId: 'ev1', evidenceLabel: 'api.log', service: 'fallback-svc' })
   })
 })
+
+describe('signatureOf ids', () => {
+  it('collapses request ids so they do not split a signature', () => {
+    expect(signatureOf('pool timeout req=a1b2c3d4 waiting=58')).toBe(signatureOf('pool timeout req=9f00e1aa waiting=113'))
+  })
+})

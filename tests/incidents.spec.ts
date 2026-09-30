@@ -185,3 +185,34 @@ test('draft, edit and export the incident report', async ({ users }) => {
   expect(markdown).toContain('## Root cause')
   expect(markdown).toContain('- [ ] Alert on DB pool saturation above 80%')
 })
+
+test('load the demo incident, analyze it, then delete it', async ({ users }) => {
+  test.setTimeout(240_000)
+  const [alex] = await users(1)
+  const { page } = alex
+  await page.setViewportSize({ width: 1440, height: 1000 })
+
+  await page.goto('/home')
+  await page.getByTestId('load-demo-button').click()
+  await expect(page.getByTestId('incident-title')).toHaveText(/v2\.14\.0 deploy/, { timeout: 20_000 })
+
+  await page.getByRole('tab', { name: /Evidence/ }).click()
+  await expect(page.getByTestId('evidence-count')).toContainText(/of \d+ entries/, { timeout: 15_000 })
+
+  await page.getByRole('tab', { name: 'Overview' }).click()
+  await page.getByTestId('run-analysis').click()
+  await expect(page.getByTestId('analysis-summary')).toBeVisible({ timeout: 180_000 })
+  await expect(page.getByTestId('hypothesis-card').first()).toBeVisible({ timeout: 15_000 })
+  await page.locator('main').evaluate((el) => (el.scrollTop = 0))
+  await page.screenshot({ path: 'test-results/demo-overview.png' })
+  await page.getByTestId('hypothesis-card').first().scrollIntoViewIfNeeded()
+  await page.screenshot({ path: 'test-results/demo-hypotheses.png' })
+
+  await page.getByRole('tab', { name: 'Timeline' }).click()
+  await page.screenshot({ path: 'test-results/demo-timeline.png' })
+
+  await page.getByRole('button', { name: 'Incident actions' }).click()
+  await page.getByRole('menuitem', { name: 'Delete incident' }).click()
+  await page.getByRole('button', { name: 'Delete incident' }).click()
+  await expect(page).toHaveURL(/\/home$/, { timeout: 20_000 })
+})

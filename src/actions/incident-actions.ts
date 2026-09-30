@@ -1,9 +1,11 @@
-import { generateText } from 'ai'
+import { generateText, Output } from 'ai'
+import type { z } from 'zod'
 import { createDeepSpaceAI, DEEPSPACE_AI_DEFAULTS, loggableError, resolveAppRole } from 'deepspace/worker'
 import type { ActionHandler, ActionResult, ActionTools } from 'deepspace/worker'
 import type { Env } from '../../worker'
 import {
   ANALYSIS_INSTRUCTIONS,
+  analysisOutputSchema,
   buildEvidenceDigest,
   heuristicAnalysis,
   parseAnalysisResponse,
@@ -20,10 +22,11 @@ import type {
   Note,
   TimelineEvent,
 } from '../lib/incident-types'
-import { heuristicReport, parseReportResponse, REPORT_INSTRUCTIONS } from '../lib/report'
+import { buildDemoIncident } from '../lib/demo-data'
+import { heuristicReport, parseReportResponse, REPORT_INSTRUCTIONS, reportOutputSchema } from '../lib/report'
 import { parseEvidenceSources } from '../lib/signals'
 
-type Row<T> = { recordId: string; data: T }
+type Row<T> = { recordId: string; data: T; createdBy?: string }
 
 const MODEL_TIMEOUT_MS = 90_000
 
@@ -65,6 +68,25 @@ export async function generateWithModel(env: Env, instructions: string, prompt: 
   return text
 }
 
+/** Like generateWithModel, but the provider enforces the given JSON schema. */
+export async function generateStructured<T>(
+  env: Env,
+  instructions: string,
+  prompt: string,
+  schema: z.ZodType<T>,
+): Promise<T> {
+  const ai = createDeepSpaceAI(env, 'anthropic')
+  const { output } = await generateText({
+    model: ai(DEEPSPACE_AI_DEFAULTS.directGeneration),
+    instructions,
+    prompt,
+    output: Output.object({ schema }),
+    maxOutputTokens: 8000,
+    abortSignal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
+  })
+  return output
+}
+
 function describeFailure(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err)
   if (/credit|balance|402|payment/i.test(message)) return 'AI credits are exhausted'
@@ -97,7 +119,7 @@ export const analyzeIncident: ActionHandler<Env> = async ({ userId, params, tool
     } else {
       try {
         const digest = buildEvidenceDigest(incident.data, sources, entries, hypotheses.map((h) => h.data))
-        const raw = await generateWithModel(env, ANALYSIS_INSTRUCTIONS, digest)
+        const raw = await generateStructured(env, ANALYSIS_INSTRUCTIONS, digest, analysisOutputSchema)
         result = parseAnalysisResponse(raw)
       } catch (err) {
         console.warn(`[analyzeIncident] falling back to rule-based analysis: ${loggableError(err)}`)
@@ -275,7 +297,7 @@ export const generateReport: ActionHandler<Env> = async ({ userId, params, tools
       formatInvestigationState(incident.data, hypotheses, notes, timeline),
       `Status: ${incident.data.status}${incident.data.resolvedAt ? `, resolved at ${incident.data.resolvedAt}` : ''}`,
     ].join('\n')
-    report = parseReportResponse(await generateWithModel(env, REPORT_INSTRUCTIONS, context))
+    report = parseReportResponse(await generateStructured(env, REPORT_INSTRUCTIONS, context, reportOutputSchema))
   } catch (err) {
     console.warn(`[generateReport] falling back to rule-based report: ${loggableError(err)}`)
     report = heuristicReport(incident.data, hypotheses.map((h) => h.data), milestones)
@@ -283,4 +305,44 @@ export const generateReport: ActionHandler<Env> = async ({ userId, params, tools
 
   await patchIncident(tools, incidentId, { report })
   return { success: true, data: { engine: report.engine } }
+}
+
+export const seedDemoIncident: ActionHandler<Env> = async ({ userId, tools, env }) => {
+  const denied = await requireWriter(env, userId)
+  if (denied) return { success: false, error: denied }
+
+  const demo = buildDemoIncident()
+  const created = await tools.create('incidents', demo.incident as unknown as Record<string, unknown>)
+  if (!created.success) return created
+  const incidentId = created.data.recordId
+
+  await Promise.all([
+    ...demo.evidence.map((e) => tools.create('evidence', { incidentId, ...e })),
+    ...demo.milestones.map((m) => tools.create('timeline-events', { incidentId, ...m })),
+  ])
+  return { success: true, data: { incidentId } }
+}
+
+const CHILD_COLLECTIONS = ['evidence', 'hypotheses', 'timeline-events', 'notes', 'incident-messages']
+const DELETE_PAGE = 500
+
+export const deleteIncident: ActionHandler<Env> = async ({ userId, params, tools, env }) => {
+  const incident = await loadIncident(tools, params.incidentId)
+  if (typeof incident === 'string') return { success: false, error: incident }
+
+  if (incident.createdBy !== userId && (await resolveAppRole(env, userId)) !== 'admin') {
+    return { success: false, error: 'Only the incident creator or an admin can delete it' }
+  }
+
+  for (const collection of CHILD_COLLECTIONS) {
+    for (;;) {
+      const res = await tools.deleteWhere(collection, { incidentId: incident.recordId }, DELETE_PAGE)
+      if (!res.success) return { success: false, error: `Could not delete ${collection}` }
+      if (res.data.deleted < DELETE_PAGE) break
+    }
+  }
+  const removed = await tools.remove('incidents', incident.recordId)
+  if (!removed.success) return removed
+  console.info(`[deleteIncident] ${incident.recordId} deleted by ${userId}`)
+  return { success: true, data: { incidentId: incident.recordId } }
 }

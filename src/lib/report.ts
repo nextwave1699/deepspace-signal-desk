@@ -24,8 +24,16 @@ const reportSchema = z.object({
   followUps: z.array(z.string()).catch([]),
 })
 
-export function parseReportResponse(raw: string, now = new Date()): IncidentReport {
-  const parsed = reportSchema.parse(extractJsonObject(raw))
+export const reportOutputSchema = z.object({
+  summary: z.string(),
+  rootCause: z.string(),
+  impact: z.string(),
+  resolution: z.string(),
+  followUps: z.array(z.string()),
+})
+
+export function parseReportResponse(raw: unknown, now = new Date()): IncidentReport {
+  const parsed = reportSchema.parse(typeof raw === 'string' ? extractJsonObject(raw) : raw)
   if (!parsed.summary || !parsed.rootCause) throw new Error('Model report is missing required sections')
   return { ...parsed, followUps: parsed.followUps.filter(Boolean), engine: 'ai', generatedAt: now.toISOString() }
 }

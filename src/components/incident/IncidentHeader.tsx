@@ -1,7 +1,22 @@
-import { Link } from 'react-router-dom'
-import { useMutations, type RecordData } from 'deepspace'
-import { ArrowLeft, Clock, Server } from 'lucide-react'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui'
+import { useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { useAuthProfileReady, useMutations, type RecordData } from 'deepspace'
+import { ArrowLeft, Clock, MoreHorizontal, Server, Trash2 } from 'lucide-react'
+import {
+  Button,
+  ConfirmModal,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  useToast,
+} from '@/components/ui'
+import { callAction } from '@/lib/actions-client'
 import { formatDateTime, formatDuration } from '@/lib/format'
 import { INCIDENT_STATUSES, type Incident, type IncidentStatus } from '@/lib/incident-types'
 import { SeverityBadge, StatusPill, statusLabel } from './badges'
@@ -55,22 +70,77 @@ export function IncidentHeader({ incident }: { incident: RecordData<Incident> })
               </span>
             </div>
           </div>
-          <div className="w-44">
-            <Select value={data.status} onValueChange={(v) => changeStatus(v as IncidentStatus)} disabled={!ready}>
-              <SelectTrigger aria-label="Incident status" className="h-9">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {INCIDENT_STATUSES.map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {statusLabel(s)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <div className="flex items-center gap-2">
+            <div className="w-44">
+              <Select value={data.status} onValueChange={(v) => changeStatus(v as IncidentStatus)} disabled={!ready}>
+                <SelectTrigger aria-label="Incident status" className="h-9">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {INCIDENT_STATUSES.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {statusLabel(s)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <IncidentMenu incident={incident} />
           </div>
         </div>
       </div>
     </header>
+  )
+}
+
+function IncidentMenu({ incident }: { incident: RecordData<Incident> }) {
+  const { user } = useAuthProfileReady({ requireUser: true })
+  const navigate = useNavigate()
+  const { error, success } = useToast()
+  const [confirming, setConfirming] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const canDelete = !!user && (user.id === incident.createdBy || user.role === 'admin')
+  if (!canDelete) return null
+
+  const destroy = async () => {
+    setDeleting(true)
+    try {
+      await callAction('deleteIncident', { incidentId: incident.recordId })
+      success('Incident deleted')
+      navigate('/home')
+    } catch (err) {
+      error('Could not delete the incident', err instanceof Error ? err.message : String(err))
+      setDeleting(false)
+      setConfirming(false)
+    }
+  }
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <Button variant="ghost" size="icon" className="size-9" aria-label="Incident actions">
+              <MoreHorizontal />
+            </Button>
+          }
+        />
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={() => setConfirming(true)} className="text-[#ff8a80]">
+            <Trash2 aria-hidden />
+            Delete incident
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <ConfirmModal
+        open={confirming}
+        onClose={() => setConfirming(false)}
+        onConfirm={destroy}
+        loading={deleting}
+        title="Delete this incident?"
+        description="The incident, its evidence, hypotheses, notes, timeline and conversation are permanently removed for everyone."
+        confirmText="Delete incident"
+      />
+    </>
   )
 }

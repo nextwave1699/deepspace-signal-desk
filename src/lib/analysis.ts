@@ -9,7 +9,7 @@ import type {
   IncidentAnalysis,
   RelatedError,
 } from './incident-types'
-import { extractSignals, summarizeEntries, type LogEntry, type Signal } from './signals'
+import { extractSignals, signatureOf, summarizeEntries, type LogEntry, type Signal } from './signals'
 
 export interface HypothesisDraft {
   title: string
@@ -73,6 +73,33 @@ const responseSchema = z.object({
   uncertainty: texts,
 })
 
+const severity = z.enum(['critical', 'warning', 'info'])
+const level = z.enum(['low', 'medium', 'high'])
+
+/** Strict shape handed to the model as its structured-output contract. */
+export const analysisOutputSchema = z.object({
+  summary: z.string(),
+  impact: z.string(),
+  overallConfidence: level,
+  signals: z.array(
+    z.object({ label: z.string(), detail: z.string(), count: z.number().nullable(), at: z.string().nullable(), severity }),
+  ),
+  hypotheses: z.array(
+    z.object({
+      title: z.string(),
+      rationale: z.string(),
+      supporting: z.array(z.string()),
+      contradicting: z.array(z.string()),
+      nextSteps: z.array(z.string()),
+      confidence: level,
+    }),
+  ),
+  relatedErrors: z.array(z.object({ signature: z.string(), count: z.number(), relation: z.string() })),
+  keyEvents: z.array(z.object({ at: z.string(), title: z.string(), detail: z.string() })),
+  checklist: z.array(z.object({ step: z.string(), why: z.string(), priority: z.enum(['now', 'next', 'later']) })),
+  uncertainty: z.array(z.string()),
+})
+
 export function extractJsonObject(raw: string): unknown {
   const fenced = /```(?:json)?\s*([\s\S]*?)```/.exec(raw)
   const candidate = fenced ? fenced[1] : raw
@@ -86,8 +113,8 @@ function isValidIso(value: string): boolean {
   return !Number.isNaN(new Date(value).getTime())
 }
 
-export function parseAnalysisResponse(raw: string): AnalysisResult {
-  const parsed = responseSchema.parse(extractJsonObject(raw))
+export function parseAnalysisResponse(raw: unknown): AnalysisResult {
+  const parsed = responseSchema.parse(typeof raw === 'string' ? extractJsonObject(raw) : raw)
   if (!parsed.summary) throw new Error('Model response is missing a summary')
   return {
     analysis: {
@@ -121,6 +148,46 @@ export function describeSignal(s: Signal): string {
 
 const MAX_DIGEST_CHARS = 32_000
 const MAX_LINES_PER_SOURCE = 80
+
+const CHANGE_RE = /deploy|roll(?:ed)?[ -]?back|config|restart|scal(?:e|ed|ing)|migrat|failover|feature[ _-]?flag|release/i
+const PROBLEM_RE = /error|warn|fatal|exception|timeout|fail|refused|panic|denied|unavailable|\b5\d\d\b|\b429\b/i
+
+/**
+ * Keep long sources within budget without losing the lines that matter:
+ * the start and end of the window, every change event, and the first two
+ * occurrences of each distinct problem signature, in original order.
+ */
+export function selectExcerpt(lines: string[]): string[] {
+  if (lines.length <= MAX_LINES_PER_SOURCE) return lines
+  const keep = new Set<number>()
+  lines.slice(0, 10).forEach((_, i) => keep.add(i))
+  lines.slice(-5).forEach((_, i) => keep.add(lines.length - 5 + i))
+  let changes = 0
+  lines.forEach((line, i) => {
+    if (changes < 20 && CHANGE_RE.test(line)) {
+      keep.add(i)
+      changes++
+    }
+  })
+  const seen = new Map<string, number>()
+  lines.forEach((line, i) => {
+    if (keep.size >= MAX_LINES_PER_SOURCE || !PROBLEM_RE.test(line)) return
+    const sig = signatureOf(line.replace(/^\S+\s+/, ''))
+    const n = seen.get(sig) ?? 0
+    if (n < 2) {
+      keep.add(i)
+      seen.set(sig, n + 1)
+    }
+  })
+  const out: string[] = []
+  let prev = -1
+  for (const i of [...keep].sort((a, b) => a - b)) {
+    if (prev !== -1 && i > prev + 1) out.push('…')
+    out.push(lines[i])
+    prev = i
+  }
+  return out
+}
 
 /** A bounded, model-ready digest of an incident and its evidence. */
 export function buildEvidenceDigest(
@@ -167,19 +234,7 @@ export function buildEvidenceDigest(
   for (const source of sources) {
     const lines = source.content.split(/\r?\n/)
     const header = `### ${source.label} (${source.kind}${source.service ? `, ${source.service}` : ''}, ${lines.length} lines)`
-    const excerpt =
-      lines.length <= MAX_LINES_PER_SOURCE
-        ? lines
-        : [
-            ...lines.slice(0, 15),
-            '…',
-            ...lines
-              .slice(15)
-              .filter((l) => /error|warn|fatal|exception|timeout|fail|refused|panic|latency|deploy/i.test(l))
-              .slice(0, MAX_LINES_PER_SOURCE - 20),
-            '…',
-            ...lines.slice(-5),
-          ]
+    const excerpt = selectExcerpt(lines)
     parts.push(header, '```', ...excerpt.map((l) => l.slice(0, 400)), '```')
   }
 

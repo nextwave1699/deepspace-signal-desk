@@ -1,12 +1,13 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { AuthOverlay, useAuthProfileReady, useQuery, type RecordData } from 'deepspace'
-import { Plus, Radio, SearchX, Sparkles } from 'lucide-react'
-import { Button, EmptyState } from '@/components/ui'
+import { FlaskConical, Plus, Radio, SearchX, Sparkles } from 'lucide-react'
+import { Button, EmptyState, useToast } from '@/components/ui'
 import { NewIncidentDialog } from '@/components/incident/NewIncidentDialog'
 import { SeverityBadge, StatusPill } from '@/components/incident/badges'
 import { applyIncidentFilters, IncidentFilterBar, useIncidentFilters } from '@/components/incident/IncidentFilters'
 import { IncidentStats } from '@/components/incident/IncidentStats'
+import { callAction } from '@/lib/actions-client'
 import { relativeTime } from '@/lib/format'
 import type { Incident } from '@/lib/incident-types'
 
@@ -24,6 +25,21 @@ function IncidentDashboard() {
   const [creating, setCreating] = useState(false)
   const filters = useIncidentFilters()
   const visible = applyIncidentFilters(records, filters.state)
+  const navigate = useNavigate()
+  const { error } = useToast()
+  const [seeding, setSeeding] = useState(false)
+
+  const loadDemo = async () => {
+    setSeeding(true)
+    try {
+      const { incidentId } = await callAction<{ incidentId: string }>('seedDemoIncident', {})
+      navigate(`/incidents/${incidentId}`)
+    } catch (err) {
+      error('Could not load the demo incident', err instanceof Error ? err.message : String(err))
+    } finally {
+      setSeeding(false)
+    }
+  }
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
@@ -34,10 +50,16 @@ function IncidentDashboard() {
             Every investigation your team has opened, in one live workspace.
           </p>
         </div>
-        <Button onClick={() => setCreating(true)} data-testid="new-incident-button">
-          <Plus aria-hidden />
-          Declare incident
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={loadDemo} loading={seeding} data-testid="load-demo-button">
+            {!seeding && <FlaskConical aria-hidden />}
+            Load demo incident
+          </Button>
+          <Button onClick={() => setCreating(true)} data-testid="new-incident-button">
+            <Plus aria-hidden />
+            Declare incident
+          </Button>
+        </div>
       </header>
 
       {status === 'loading' ? (
@@ -52,6 +74,7 @@ function IncidentDashboard() {
           title="No incidents yet"
           description="Declare an incident to start collecting evidence and let SignalDesk help you find the root cause."
           action={{ label: 'Declare incident', onClick: () => setCreating(true) }}
+          secondaryAction={{ label: 'Explore a demo incident', onClick: loadDemo }}
         />
       ) : (
         <>

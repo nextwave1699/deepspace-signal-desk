@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { buildEvidenceDigest, heuristicAnalysis, parseAnalysisResponse, searchEvidenceAnswer } from './analysis'
+import {
+  buildEvidenceDigest,
+  heuristicAnalysis,
+  parseAnalysisResponse,
+  searchEvidenceAnswer,
+  selectExcerpt,
+} from './analysis'
 import type { Incident } from './incident-types'
 import { parseTextLog } from './signals'
 
@@ -102,5 +108,20 @@ describe('searchEvidenceAnswer', () => {
     expect(searchEvidenceAnswer('any redis evictions?', entries, 'n')).toContain(
       'No evidence entries mention "redis"',
     )
+  })
+})
+
+describe('selectExcerpt', () => {
+  it('keeps change events and samples each signature from long sources', () => {
+    const lines = [
+      ...Array.from({ length: 200 }, (_, i) => `2026-09-28T14:${String(i % 60).padStart(2, '0')}:00Z ERROR pool timeout waiting=${i}`),
+      '2026-09-28T15:10:00Z INFO [deployer] rolled back checkout-api to v2.13.4',
+      ...Array.from({ length: 50 }, () => '2026-09-28T15:11:00Z INFO ok'),
+    ]
+    const excerpt = selectExcerpt(lines)
+    expect(excerpt.length).toBeLessThanOrEqual(90)
+    expect(excerpt).toContain('2026-09-28T15:10:00Z INFO [deployer] rolled back checkout-api to v2.13.4')
+    expect(excerpt.filter((l) => l.includes('pool timeout')).length).toBeLessThanOrEqual(12)
+    expect(excerpt).toContain('…')
   })
 })
