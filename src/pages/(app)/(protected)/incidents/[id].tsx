@@ -5,6 +5,7 @@ import { IncidentHeader } from '@/components/incident/IncidentHeader'
 import { EvidencePanel } from '@/components/incident/EvidencePanel'
 import { InvestigatePanel } from '@/components/incident/InvestigatePanel'
 import { OverviewPanel } from '@/components/incident/OverviewPanel'
+import { ReportPanel } from '@/components/incident/ReportPanel'
 import { TimelinePanel } from '@/components/incident/TimelinePanel'
 import { useEvidence, useIncident } from '@/hooks/useIncidentWorkspace'
 
@@ -39,6 +40,7 @@ export default function IncidentPage() {
           </TabsTrigger>
           <TabsTrigger value="timeline">Timeline</TabsTrigger>
           <TabsTrigger value="investigate">Investigate</TabsTrigger>
+          <TabsTrigger value="report">Report</TabsTrigger>
         </TabsList>
         <TabsContent value="overview">
           <OverviewPanel incident={incident} evidenceCount={evidence.length} entries={entries} />
@@ -51,6 +53,9 @@ export default function IncidentPage() {
         </TabsContent>
         <TabsContent value="investigate">
           <InvestigatePanel incident={incident} />
+        </TabsContent>
+        <TabsContent value="report">
+          <ReportPanel incident={incident} evidence={evidence} entries={entries} />
         </TabsContent>
       </Tabs>
     </div>

@@ -155,3 +155,33 @@ test('track hypotheses and investigation notes', async ({ users }) => {
   await page.getByRole('tab', { name: 'Timeline' }).click()
   await expect(page.getByTestId('timeline-list')).toContainText('Root cause confirmed: Cache stampede')
 })
+
+test('draft, edit and export the incident report', async ({ users }) => {
+  test.setTimeout(180_000)
+  const [alex] = await users(1)
+  const { page } = alex
+
+  await page.goto('/home')
+  await page.getByTestId('new-incident-button').click()
+  await page.getByLabel('Title').fill(`Report test ${Date.now()}`)
+  await page.locator('#incident-description').fill('Checkout requests failed with 503 for 20 minutes.')
+  await page.getByRole('button', { name: 'Declare incident' }).last().click()
+  await expect(page).toHaveURL(/\/incidents\//, { timeout: 15_000 })
+
+  await page.getByRole('tab', { name: 'Report' }).click()
+  await page.getByTestId('generate-report').click()
+  await expect(page.getByTestId('report-panel')).toBeVisible({ timeout: 150_000 })
+
+  await page.getByLabel('Follow-up actions').fill('Alert on DB pool saturation above 80%')
+  await page.getByRole('button', { name: 'Save changes' }).click()
+  await expect(page.getByRole('button', { name: 'Save changes' })).toBeDisabled()
+
+  const downloadPromise = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Download' }).click()
+  const download = await downloadPromise
+  const path = await download.path()
+  const { readFileSync } = await import('node:fs')
+  const markdown = readFileSync(path, 'utf8')
+  expect(markdown).toContain('## Root cause')
+  expect(markdown).toContain('- [ ] Alert on DB pool saturation above 80%')
+})

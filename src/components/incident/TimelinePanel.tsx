@@ -6,18 +6,10 @@ import { cn } from '@/lib/utils'
 import { formatDateTime, fromLocalInputValue, toLocalInputValue } from '@/lib/format'
 import type { Incident, TimelineEvent } from '@/lib/incident-types'
 import { summarizeEntries, type LogEntry } from '@/lib/signals'
+import { buildTimelineRows, type TimelineTone } from '@/lib/timeline'
 import { ActivityStrip } from './ActivityStrip'
 
-type Row = {
-  id: string
-  at: string
-  title: string
-  detail: string
-  tone: 'start' | 'signal' | 'ai' | 'milestone' | 'resolved'
-  removable?: boolean
-}
-
-const TONES: Record<Row['tone'], { icon: typeof Flag; className: string; label: string }> = {
+const TONES: Record<TimelineTone, { icon: typeof Flag; className: string; label: string }> = {
   start: { icon: Flame, className: 'text-[#ff8a80] bg-[#f0564a]/15', label: 'Declared' },
   signal: { icon: AlertTriangle, className: 'text-[#fbbf5a] bg-[#f59e0b]/15', label: 'Detected' },
   ai: { icon: Sparkles, className: 'text-primary bg-primary/15', label: 'AI key event' },
@@ -34,40 +26,10 @@ export function TimelinePanel({ incident, entries }: { incident: RecordData<Inci
   const { ready, create, remove } = useMutations<TimelineEvent>('timeline-events')
   const summary = useMemo(() => summarizeEntries(entries), [entries])
 
-  const rows = useMemo<Row[]>(() => {
-    const list: Row[] = [
-      {
-        id: 'start',
-        at: incident.data.startedAt,
-        title: 'Incident started',
-        detail: incident.data.title,
-        tone: 'start',
-      },
-    ]
-    if (summary.firstError?.timestamp) {
-      list.push({
-        id: 'first-error',
-        at: summary.firstError.timestamp,
-        title: 'First error in evidence',
-        detail: summary.firstError.message,
-        tone: 'signal',
-      })
-    }
-    for (const ev of events) {
-      list.push({
-        id: ev.recordId,
-        at: ev.data.at,
-        title: ev.data.title,
-        detail: ev.data.detail,
-        tone: ev.data.kind === 'key-event' ? 'ai' : 'milestone',
-        removable: ev.data.source === 'user',
-      })
-    }
-    if (incident.data.status === 'resolved' && incident.data.resolvedAt) {
-      list.push({ id: 'resolved', at: incident.data.resolvedAt, title: 'Incident resolved', detail: '', tone: 'resolved' })
-    }
-    return list.sort((a, b) => a.at.localeCompare(b.at))
-  }, [events, incident.data, summary.firstError])
+  const rows = useMemo(
+    () => buildTimelineRows(incident.data, events, summary.firstError),
+    [events, incident.data, summary.firstError],
+  )
 
   const markers = rows.map((r) => ({ at: r.at, label: r.title }))
 

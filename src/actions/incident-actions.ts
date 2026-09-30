@@ -11,7 +11,16 @@ import {
   searchEvidenceAnswer,
   type AnalysisResult,
 } from '../lib/analysis'
-import type { Evidence, Hypothesis, Incident, IncidentMessage, Note, TimelineEvent } from '../lib/incident-types'
+import type {
+  Evidence,
+  Hypothesis,
+  Incident,
+  IncidentMessage,
+  IncidentReport,
+  Note,
+  TimelineEvent,
+} from '../lib/incident-types'
+import { heuristicReport, parseReportResponse, REPORT_INSTRUCTIONS } from '../lib/report'
 import { parseEvidenceSources } from '../lib/signals'
 
 type Row<T> = { recordId: string; data: T }
@@ -236,4 +245,42 @@ function formatInvestigationState(
   }
   parts.push('')
   return parts.join('\n')
+}
+
+export const generateReport: ActionHandler<Env> = async ({ userId, params, tools, env }) => {
+  const denied = await requireWriter(env, userId)
+  if (denied) return { success: false, error: denied }
+
+  const incident = await loadIncident(tools, params.incidentId)
+  if (typeof incident === 'string') return { success: false, error: incident }
+  const incidentId = incident.recordId
+
+  const [evidence, hypotheses, notes, timeline] = await Promise.all([
+    queryByIncident<Evidence>(tools, 'evidence', incidentId),
+    queryByIncident<Hypothesis>(tools, 'hypotheses', incidentId),
+    queryByIncident<Note>(tools, 'notes', incidentId),
+    queryByIncident<TimelineEvent>(tools, 'timeline-events', incidentId),
+  ])
+  const milestones = timeline
+    .filter((t) => t.data.source === 'user')
+    .map((t) => t.data)
+    .sort((a, b) => a.at.localeCompare(b.at))
+
+  let report: IncidentReport
+  try {
+    const sources = evidence.map((e) => ({ id: e.recordId, ...e.data }))
+    const entries = parseEvidenceSources(sources, incident.data.startedAt)
+    const context = [
+      buildEvidenceDigest(incident.data, sources, entries, hypotheses.map((h) => h.data)),
+      formatInvestigationState(incident.data, hypotheses, notes, timeline),
+      `Status: ${incident.data.status}${incident.data.resolvedAt ? `, resolved at ${incident.data.resolvedAt}` : ''}`,
+    ].join('\n')
+    report = parseReportResponse(await generateWithModel(env, REPORT_INSTRUCTIONS, context))
+  } catch (err) {
+    console.warn(`[generateReport] falling back to rule-based report: ${loggableError(err)}`)
+    report = heuristicReport(incident.data, hypotheses.map((h) => h.data), milestones)
+  }
+
+  await patchIncident(tools, incidentId, { report })
+  return { success: true, data: { engine: report.engine } }
 }
