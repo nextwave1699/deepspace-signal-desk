@@ -32,7 +32,7 @@ export default function IncidentPage() {
       <title>{`${incident.data.title} · SignalDesk`}</title>
       <IncidentHeader incident={incident} />
       <Tabs defaultValue="overview" className="mx-auto max-w-6xl px-4 py-5 sm:px-6">
-        <TabsList className="mb-5">
+        <TabsList className="mb-5 max-w-full overflow-x-auto">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="evidence">
             Evidence

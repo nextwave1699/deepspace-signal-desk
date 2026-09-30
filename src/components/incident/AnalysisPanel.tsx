@@ -20,6 +20,8 @@ import { ConfidenceMeter, HypothesisStatusTag } from './badges'
 import { AddHypothesisButton, HypothesisControls } from './HypothesisControls'
 import { useNotes } from './NotesPanel'
 
+const STALE_RUN_MS = 3 * 60_000
+
 export function useHypotheses(incidentId: string) {
   return useQuery<Hypothesis>('hypotheses', { where: { incidentId }, orderBy: 'createdAt', orderDir: 'asc' })
 }
@@ -28,7 +30,8 @@ export function AnalysisPanel({ incident, evidenceCount }: { incident: RecordDat
   const { error } = useToast()
   const [requesting, setRequesting] = useState(false)
   const { analysis, analysisStatus, analyzedAt, analysisError } = incident.data
-  const running = requesting || analysisStatus === 'running'
+  const stale = Date.now() - new Date(incident.updatedAt).getTime() > STALE_RUN_MS
+  const running = requesting || (analysisStatus === 'running' && !stale)
 
   const run = async () => {
     setRequesting(true)
