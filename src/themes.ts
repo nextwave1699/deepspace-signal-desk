@@ -18,6 +18,11 @@
 
 export const THEMES = [
   {
+    id: 'signal',
+    label: 'Signal',
+    description: 'SignalDesk control-room theme: ink-blue surfaces with a teal signal color.',
+  },
+  {
     id: 'slate',
     label: 'Slate',
     description: 'Neutral dark placeholder default. Replace with your own theme.',
@@ -33,9 +38,9 @@ export type ThemeId = (typeof THEMES)[number]['id']
 
 /** Read the currently active theme id from <html data-theme>. */
 export function getActiveTheme(): ThemeId {
-  if (typeof document === 'undefined') return 'slate'
+  if (typeof document === 'undefined') return 'signal'
   const id = document.documentElement.getAttribute('data-theme') as ThemeId | null
-  return id ?? 'slate'
+  return id ?? 'signal'
 }
 
 /** Look up a theme entry by id, or fall back to the first theme. */

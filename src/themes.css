@@ -44,3 +44,39 @@
   --color-shell: #fafafa;
   --color-shell-panel: #ffffff;
 }
+
+/* Signal — SignalDesk's control-room theme: ink-blue surfaces, a phosphor
+ * teal signal color, and warm neutrals for text. */
+[data-theme="signal"] {
+  color-scheme: dark;
+  --color-background: #0b0f14;
+  --color-foreground: #e6e9ee;
+  --color-card: #11171f;
+  --color-card-foreground: #e6e9ee;
+  --color-popover: #131a23;
+  --color-popover-foreground: #e6e9ee;
+  --color-primary: #3ddbc3;
+  --color-primary-foreground: #04110f;
+  --color-secondary: #18202b;
+  --color-secondary-foreground: #e6e9ee;
+  --color-muted: #151c26;
+  --color-muted-foreground: #8b96a5;
+  --color-accent: #1c2632;
+  --color-accent-foreground: #e6e9ee;
+  --color-destructive: #f0564a;
+  --color-destructive-foreground: #ffffff;
+  --color-border: #222c38;
+  --color-input: #2a3542;
+  --color-ring: #3ddbc3;
+  --radius: 0.375rem;
+  --shadow-card: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+  --shadow-card-hover: 0 2px 10px 0 rgba(0, 0, 0, 0.4);
+  --color-shell: #0b0f14;
+  --color-shell-panel: #11171f;
+  --font-sans: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+[data-theme="signal"] body {
+  font-family: var(--font-sans);
+}
