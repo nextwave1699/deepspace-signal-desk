@@ -50,4 +50,11 @@ test('paste evidence and filter it down to errors', async ({ users }) => {
   await page.getByRole('combobox', { name: 'Level' }).click()
   await page.getByRole('option', { name: 'Errors only' }).click()
   await expect(page.getByTestId('evidence-count')).toHaveText('1 of 3 entries')
+
+  await page.getByRole('tab', { name: 'Timeline' }).click()
+  await expect(page.getByTestId('timeline-list')).toContainText('First error in evidence')
+  await page.getByLabel('What happened').fill('Rolled back deploy v2.14.0')
+  await page.getByRole('button', { name: 'Add to timeline' }).click()
+  await expect(page.getByTestId('timeline-list')).toContainText('Rolled back deploy v2.14.0', { timeout: 15_000 })
+  await page.screenshot({ path: 'test-results/timeline.png', fullPage: true })
 })

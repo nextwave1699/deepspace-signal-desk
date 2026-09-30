@@ -4,6 +4,7 @@ import { EmptyState, Tabs, TabsContent, TabsList, TabsTrigger } from '@/componen
 import { IncidentHeader } from '@/components/incident/IncidentHeader'
 import { EvidencePanel } from '@/components/incident/EvidencePanel'
 import { OverviewPanel } from '@/components/incident/OverviewPanel'
+import { TimelinePanel } from '@/components/incident/TimelinePanel'
 import { useEvidence, useIncident } from '@/hooks/useIncidentWorkspace'
 
 export default function IncidentPage() {
@@ -35,12 +36,16 @@ export default function IncidentPage() {
             Evidence
             {evidence.length > 0 && <span className="ml-1.5 text-xs text-muted-foreground">{evidence.length}</span>}
           </TabsTrigger>
+          <TabsTrigger value="timeline">Timeline</TabsTrigger>
         </TabsList>
         <TabsContent value="overview">
           <OverviewPanel incident={incident} />
         </TabsContent>
         <TabsContent value="evidence">
           <EvidencePanel incident={incident} evidence={evidence} entries={entries} />
+        </TabsContent>
+        <TabsContent value="timeline">
+          <TimelinePanel incident={incident} entries={entries} />
         </TabsContent>
       </Tabs>
     </div>
