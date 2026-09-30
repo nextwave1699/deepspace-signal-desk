@@ -11,7 +11,7 @@
 import { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { AuthOverlay, useAuthProfileReady, signOut } from 'deepspace'
-import { ChevronDown, LogOut, Menu, X } from 'lucide-react'
+import { ChevronDown, LogOut, Menu, Radio, X } from 'lucide-react'
 import { APP_NAME } from '../constants'
 import type { Role } from '../constants'
 import { nav } from '../nav'
@@ -51,7 +51,9 @@ export default function Navigation() {
   })
 
   const navLink = (item: (typeof nav)[number]) => {
-    const active = location.pathname.startsWith(item.path)
+    const active =
+      location.pathname.startsWith(item.path) ||
+      (item.path === '/home' && location.pathname.startsWith('/incidents'))
     return (
       <Link
         key={item.path}
@@ -71,7 +73,10 @@ export default function Navigation() {
     <>
       <nav data-testid="app-navigation" className="border-b border-border bg-background">
         <div className="mx-auto flex h-12 max-w-7xl items-center gap-4 px-4">
-          <Link to="/home" className="text-sm font-semibold text-foreground">
+          <Link to="/home" className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            <span className="flex size-6 items-center justify-center rounded bg-primary/15 text-primary">
+              <Radio className="size-3.5" aria-hidden />
+            </span>
             {APP_NAME}
           </Link>
 
