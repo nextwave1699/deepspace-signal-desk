@@ -39,7 +39,7 @@ export default function IncidentPage() {
           <TabsTrigger value="timeline">Timeline</TabsTrigger>
         </TabsList>
         <TabsContent value="overview">
-          <OverviewPanel incident={incident} />
+          <OverviewPanel incident={incident} evidenceCount={evidence.length} entries={entries} />
         </TabsContent>
         <TabsContent value="evidence">
           <EvidencePanel incident={incident} evidence={evidence} entries={entries} />

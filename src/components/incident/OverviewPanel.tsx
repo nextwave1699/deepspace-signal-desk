@@ -1,16 +1,55 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutations, type RecordData } from 'deepspace'
 import { Pencil } from 'lucide-react'
 import { Button, Textarea } from '@/components/ui'
+import { formatDateTime } from '@/lib/format'
 import type { Incident } from '@/lib/incident-types'
+import { summarizeEntries, type LogEntry } from '@/lib/signals'
+import { AnalysisPanel } from './AnalysisPanel'
 
-export function OverviewPanel({ incident }: { incident: RecordData<Incident> }) {
+interface Props {
+  incident: RecordData<Incident>
+  evidenceCount: number
+  entries: LogEntry[]
+}
+
+export function OverviewPanel({ incident, evidenceCount, entries }: Props) {
   return (
-    <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
-      <div className="space-y-5">
+    <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
+      <AnalysisPanel incident={incident} evidenceCount={evidenceCount} />
+      <aside className="space-y-4">
         <DescriptionCard incident={incident} />
-      </div>
+        <EvidenceStats entries={entries} />
+      </aside>
     </div>
+  )
+}
+
+function EvidenceStats({ entries }: { entries: LogEntry[] }) {
+  const summary = useMemo(() => summarizeEntries(entries), [entries])
+  const errors = summary.byLevel.error + summary.byLevel.fatal
+  const rows: [string, string][] = [
+    ['Entries', String(summary.total)],
+    ['Errors', String(errors)],
+    ['Warnings', String(summary.byLevel.warn)],
+    ['Services', summary.services.join(', ') || '—'],
+    ['First error', summary.firstError?.timestamp ? formatDateTime(summary.firstError.timestamp) : '—'],
+  ]
+  if (summary.latency) {
+    rows.push(['Latency', `${summary.latency.baselineMs}ms → ${summary.latency.peakMs}ms (${summary.latency.ratio}×)`])
+  }
+  return (
+    <section className="rounded-lg border border-border bg-card p-4">
+      <h2 className="mb-3 text-sm font-semibold">Evidence at a glance</h2>
+      <dl className="space-y-2 text-sm">
+        {rows.map(([label, value]) => (
+          <div key={label} className="flex justify-between gap-3">
+            <dt className="text-muted-foreground">{label}</dt>
+            <dd className="break-words text-right font-mono text-xs leading-5">{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
   )
 }
 
