@@ -3,6 +3,7 @@ import { Radio } from 'lucide-react'
 import { EmptyState, Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui'
 import { IncidentHeader } from '@/components/incident/IncidentHeader'
 import { EvidencePanel } from '@/components/incident/EvidencePanel'
+import { InvestigatePanel } from '@/components/incident/InvestigatePanel'
 import { OverviewPanel } from '@/components/incident/OverviewPanel'
 import { TimelinePanel } from '@/components/incident/TimelinePanel'
 import { useEvidence, useIncident } from '@/hooks/useIncidentWorkspace'
@@ -37,6 +38,7 @@ export default function IncidentPage() {
             {evidence.length > 0 && <span className="ml-1.5 text-xs text-muted-foreground">{evidence.length}</span>}
           </TabsTrigger>
           <TabsTrigger value="timeline">Timeline</TabsTrigger>
+          <TabsTrigger value="investigate">Investigate</TabsTrigger>
         </TabsList>
         <TabsContent value="overview">
           <OverviewPanel incident={incident} evidenceCount={evidence.length} entries={entries} />
@@ -46,6 +48,9 @@ export default function IncidentPage() {
         </TabsContent>
         <TabsContent value="timeline">
           <TimelinePanel incident={incident} entries={entries} />
+        </TabsContent>
+        <TabsContent value="investigate">
+          <InvestigatePanel incident={incident} />
         </TabsContent>
       </Tabs>
     </div>

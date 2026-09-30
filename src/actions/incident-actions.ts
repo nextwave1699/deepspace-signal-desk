@@ -7,9 +7,11 @@ import {
   buildEvidenceDigest,
   heuristicAnalysis,
   parseAnalysisResponse,
+  QA_INSTRUCTIONS,
+  searchEvidenceAnswer,
   type AnalysisResult,
 } from '../lib/analysis'
-import type { Evidence, Hypothesis, Incident, TimelineEvent } from '../lib/incident-types'
+import type { Evidence, Hypothesis, Incident, IncidentMessage, Note, TimelineEvent } from '../lib/incident-types'
 import { parseEvidenceSources } from '../lib/signals'
 
 type Row<T> = { recordId: string; data: T }
@@ -156,4 +158,82 @@ async function replaceAiArtifacts(
     ),
   ]
   await Promise.all(writes)
+}
+
+const MAX_QUESTION_CHARS = 2000
+const HISTORY_TURNS = 12
+
+export const askIncident: ActionHandler<Env> = async ({ userId, params, tools, env }) => {
+  const denied = await requireWriter(env, userId)
+  if (denied) return { success: false, error: denied }
+
+  const question = typeof params.question === 'string' ? params.question.trim() : ''
+  if (!question) return { success: false, error: 'question is required' }
+  if (question.length > MAX_QUESTION_CHARS) return { success: false, error: 'Question is too long' }
+
+  const incident = await loadIncident(tools, params.incidentId)
+  if (typeof incident === 'string') return { success: false, error: incident }
+  const incidentId = incident.recordId
+
+  const [evidence, hypotheses, notes, timeline, history] = await Promise.all([
+    queryByIncident<Evidence>(tools, 'evidence', incidentId),
+    queryByIncident<Hypothesis>(tools, 'hypotheses', incidentId),
+    queryByIncident<Note>(tools, 'notes', incidentId),
+    queryByIncident<TimelineEvent>(tools, 'timeline-events', incidentId),
+    queryByIncident<IncidentMessage>(tools, 'incident-messages', incidentId),
+  ])
+
+  await tools.create('incident-messages', { incidentId, role: 'user', content: question })
+
+  const sources = evidence.map((e) => ({ id: e.recordId, ...e.data }))
+  const entries = parseEvidenceSources(sources, incident.data.startedAt)
+  const context = [
+    buildEvidenceDigest(incident.data, sources, entries, hypotheses.map((h) => h.data)),
+    formatInvestigationState(incident.data, hypotheses, notes, timeline),
+    '## Conversation so far',
+    ...history.slice(-HISTORY_TURNS).map((m) => `${m.data.role === 'user' ? 'Engineer' : 'SignalDesk'}: ${m.data.content}`),
+    '',
+    `## Question\n${question}`,
+  ].join('\n')
+
+  let answer: string
+  try {
+    answer = (await generateWithModel(env, QA_INSTRUCTIONS, context)).trim()
+    if (!answer) throw new Error('empty answer')
+  } catch (err) {
+    console.warn(`[askIncident] falling back to evidence search: ${loggableError(err)}`)
+    answer = searchEvidenceAnswer(question, entries, `${describeFailure(err)}, so I searched the evidence directly.`)
+  }
+
+  await tools.create('incident-messages', { incidentId, role: 'assistant', content: answer })
+  return { success: true, data: { answer } }
+}
+
+function formatInvestigationState(
+  incident: Incident,
+  hypotheses: Row<Hypothesis>[],
+  notes: Row<Note>[],
+  timeline: Row<TimelineEvent>[],
+): string {
+  const parts: string[] = []
+  if (incident.analysis) {
+    parts.push('## Current analysis', incident.analysis.summary)
+  }
+  if (hypotheses.length) {
+    parts.push('', '## Hypotheses and review status')
+    for (const h of hypotheses) {
+      parts.push(`- [${h.data.status}, ${h.data.confidence} confidence] ${h.data.title}: ${h.data.rationale}`)
+    }
+  }
+  const milestones = timeline.filter((t) => t.data.source === 'user')
+  if (milestones.length) {
+    parts.push('', '## Team milestones')
+    for (const t of milestones) parts.push(`- ${t.data.at} ${t.data.title}${t.data.detail ? ` — ${t.data.detail}` : ''}`)
+  }
+  if (notes.length) {
+    parts.push('', '## Investigation notes')
+    for (const n of notes.slice(-20)) parts.push(`- ${n.data.body.slice(0, 500)}`)
+  }
+  parts.push('')
+  return parts.join('\n')
 }

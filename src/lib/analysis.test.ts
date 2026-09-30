@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildEvidenceDigest, heuristicAnalysis, parseAnalysisResponse } from './analysis'
+import { buildEvidenceDigest, heuristicAnalysis, parseAnalysisResponse, searchEvidenceAnswer } from './analysis'
 import type { Incident } from './incident-types'
 import { parseTextLog } from './signals'
 
@@ -85,5 +85,22 @@ describe('buildEvidenceDigest', () => {
     expect(digest).toMatch(/could not acquire connection.*×3/)
     expect(digest).toContain('[rejected] Bad deploy')
     expect(digest).toContain('### api.log (log, checkout-api, 7 lines)')
+  })
+})
+
+describe('searchEvidenceAnswer', () => {
+  const entries = parseTextLog(LOG)
+
+  it('lists the entries that match the question keywords', () => {
+    const answer = searchEvidenceAnswer('When did the pool timeouts start?', entries, 'AI unavailable.')
+    expect(answer).toMatch(/^AI unavailable\./)
+    expect(answer).toContain('3 evidence entries match')
+    expect(answer).toContain('14:32:07 [error]')
+  })
+
+  it('says so when nothing matches', () => {
+    expect(searchEvidenceAnswer('any redis evictions?', entries, 'n')).toContain(
+      'No evidence entries mention "redis"',
+    )
   })
 })

@@ -92,3 +92,29 @@ test('analyze an incident into signals and hypotheses', async ({ users }) => {
   await expect(page.getByTestId('hypothesis-card').first()).toBeVisible({ timeout: 15_000 })
   await page.screenshot({ path: 'test-results/analysis.png', fullPage: true })
 })
+
+test('ask the assistant a question about the incident', async ({ users }) => {
+  test.setTimeout(180_000)
+  const [alex] = await users(1)
+  const { page } = alex
+
+  await page.goto('/home')
+  await page.getByTestId('new-incident-button').click()
+  await page.getByLabel('Title').fill(`Q&A test ${Date.now()}`)
+  await page.getByRole('button', { name: 'Declare incident' }).last().click()
+  await expect(page).toHaveURL(/\/incidents\//, { timeout: 15_000 })
+
+  await page.getByRole('tab', { name: /Evidence/ }).click()
+  await page.getByTestId('add-evidence-button').click()
+  await page.getByLabel('Content').fill(
+    '2026-09-28T14:32:07Z ERROR [payments] redis connection refused 10.0.4.12:6379\n2026-09-28T14:32:09Z ERROR [payments] redis connection refused 10.0.4.12:6379',
+  )
+  await page.getByRole('button', { name: 'Add evidence' }).last().click()
+  await expect(page.getByTestId('evidence-count')).toHaveText('2 of 2 entries', { timeout: 15_000 })
+
+  await page.getByRole('tab', { name: 'Investigate' }).click()
+  await page.getByLabel('Ask a question').fill('Which dependency is failing?')
+  await page.getByRole('button', { name: 'Send question' }).click()
+  await expect(page.getByTestId('chat-user')).toContainText('Which dependency is failing?', { timeout: 15_000 })
+  await expect(page.getByTestId('chat-assistant')).toContainText(/redis/i, { timeout: 150_000 })
+})

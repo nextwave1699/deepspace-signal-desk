@@ -408,3 +408,31 @@ export function heuristicAnalysis(incident: Incident, entries: LogEntry[], notic
     keyEvents,
   }
 }
+
+export const QA_INSTRUCTIONS = `You are SignalDesk, an incident-response analyst answering an on-call engineer's question about an active incident.
+Answer only from the incident context provided: evidence, analysis, hypotheses and their review status, notes and timeline.
+Quote or cite specific log lines, counts and timestamps when they support your answer.
+If the evidence cannot answer the question, say so plainly and name the data that would.
+Respect the team's hypothesis reviews: do not argue for a rejected hypothesis unless new evidence contradicts the rejection.
+Be concise: short paragraphs or "- " bullet lists, no headings, under 250 words.`
+
+const STOP_WORDS = new Set([
+  'the', 'a', 'an', 'and', 'or', 'is', 'are', 'was', 'were', 'what', 'why', 'how', 'when', 'where', 'which',
+  'did', 'does', 'do', 'to', 'of', 'in', 'on', 'for', 'at', 'by', 'with', 'this', 'that', 'it', 'any', 'there',
+  'we', 'our', 'i', 'you', 'be', 'from', 'about', 'show', 'me', 'find', 'see', 'can', 'could', 'should',
+])
+
+/** Keyword search over evidence, used to answer when the model is unavailable. */
+export function searchEvidenceAnswer(question: string, entries: LogEntry[], notice: string): string {
+  const terms = [...new Set(question.toLowerCase().match(/[a-z0-9_.-]{3,}/g) ?? [])].filter((t) => !STOP_WORDS.has(t))
+  if (terms.length === 0) return `${notice}\n\nAsk about a specific error, service or time and I'll search the evidence directly.`
+  const scored = entries
+    .map((e) => ({ e, score: terms.filter((t) => e.raw.toLowerCase().includes(t)).length }))
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score || (a.e.timestamp ?? '').localeCompare(b.e.timestamp ?? ''))
+  if (scored.length === 0) {
+    return `${notice}\n\nNo evidence entries mention ${terms.map((t) => `"${t}"`).join(', ')}.`
+  }
+  const lines = scored.slice(0, 8).map(({ e }) => `- ${e.timestamp ? `${e.timestamp.slice(11, 19)} ` : ''}[${e.level}] ${e.message.slice(0, 160)}`)
+  return `${notice}\n\n${scored.length} evidence entries match ${terms.map((t) => `"${t}"`).join(', ')}. Most relevant:\n${lines.join('\n')}`
+}
