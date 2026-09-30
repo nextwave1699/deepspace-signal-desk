@@ -1,0 +1,159 @@
+import { generateText } from 'ai'
+import { createDeepSpaceAI, DEEPSPACE_AI_DEFAULTS, loggableError, resolveAppRole } from 'deepspace/worker'
+import type { ActionHandler, ActionResult, ActionTools } from 'deepspace/worker'
+import type { Env } from '../../worker'
+import {
+  ANALYSIS_INSTRUCTIONS,
+  buildEvidenceDigest,
+  heuristicAnalysis,
+  parseAnalysisResponse,
+  type AnalysisResult,
+} from '../lib/analysis'
+import type { Evidence, Hypothesis, Incident, TimelineEvent } from '../lib/incident-types'
+import { parseEvidenceSources } from '../lib/signals'
+
+type Row<T> = { recordId: string; data: T }
+
+const MODEL_TIMEOUT_MS = 90_000
+
+export async function requireWriter(env: Env, userId: string): Promise<string | null> {
+  const role = await resolveAppRole(env, userId)
+  return role === 'member' || role === 'admin' ? null : 'Only team members can run incident analysis'
+}
+
+export async function loadIncident(tools: ActionTools, incidentId: unknown): Promise<Row<Incident> | string> {
+  if (typeof incidentId !== 'string' || !incidentId) return 'incidentId is required'
+  const res = await tools.get('incidents', incidentId)
+  if (!res.success) return 'Incident not found'
+  return res.data.record as unknown as Row<Incident>
+}
+
+export async function queryByIncident<T>(tools: ActionTools, collection: string, incidentId: string): Promise<Row<T>[]> {
+  const res = await tools.query(collection, { where: { incidentId }, orderBy: 'createdAt', orderDir: 'asc' })
+  return res.success ? (res.data.records as unknown as Row<T>[]) : []
+}
+
+export function patchIncident(tools: ActionTools, incidentId: string, patch: Partial<Incident>) {
+  return tools.update('incidents', incidentId, patch as Record<string, unknown>)
+}
+
+/**
+ * Incident analysis is team infrastructure, so model calls bill the app owner
+ * rather than whichever on-call engineer clicked the button. requireWriter
+ * keeps that spend limited to team members.
+ */
+export async function generateWithModel(env: Env, instructions: string, prompt: string): Promise<string> {
+  const ai = createDeepSpaceAI(env, 'anthropic')
+  const { text } = await generateText({
+    model: ai(DEEPSPACE_AI_DEFAULTS.directGeneration),
+    instructions,
+    prompt,
+    maxOutputTokens: 6000,
+    abortSignal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
+  })
+  return text
+}
+
+function describeFailure(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err)
+  if (/credit|balance|402|payment/i.test(message)) return 'AI credits are exhausted'
+  if (/timeout|aborted/i.test(message)) return 'The AI model timed out'
+  return 'The AI model could not be reached'
+}
+
+export const analyzeIncident: ActionHandler<Env> = async ({ userId, params, tools, env }) => {
+  const denied = await requireWriter(env, userId)
+  if (denied) return { success: false, error: denied }
+
+  const incident = await loadIncident(tools, params.incidentId)
+  if (typeof incident === 'string') return { success: false, error: incident }
+  const incidentId = incident.recordId
+
+  await patchIncident(tools, incidentId, { analysisStatus: 'running', analysisError: '' })
+
+  try {
+    const [evidence, hypotheses, timeline] = await Promise.all([
+      queryByIncident<Evidence>(tools, 'evidence', incidentId),
+      queryByIncident<Hypothesis>(tools, 'hypotheses', incidentId),
+      queryByIncident<TimelineEvent>(tools, 'timeline-events', incidentId),
+    ])
+    const sources = evidence.map((e) => ({ id: e.recordId, ...e.data }))
+    const entries = parseEvidenceSources(sources, incident.data.startedAt)
+
+    let result: AnalysisResult
+    if (entries.length === 0 && !incident.data.description) {
+      result = heuristicAnalysis(incident.data, entries, 'Add evidence to get an AI analysis.')
+    } else {
+      try {
+        const digest = buildEvidenceDigest(incident.data, sources, entries, hypotheses.map((h) => h.data))
+        const raw = await generateWithModel(env, ANALYSIS_INSTRUCTIONS, digest)
+        result = parseAnalysisResponse(raw)
+      } catch (err) {
+        console.warn(`[analyzeIncident] falling back to rule-based analysis: ${loggableError(err)}`)
+        result = heuristicAnalysis(
+          incident.data,
+          entries,
+          `${describeFailure(err)}, so this is a rule-based analysis. Re-run to try the AI again.`,
+        )
+      }
+    }
+
+    await replaceAiArtifacts(tools, incidentId, result, hypotheses, timeline)
+    await patchIncident(tools, incidentId, {
+      analysis: result.analysis,
+      analysisStatus: 'idle',
+      analyzedAt: new Date().toISOString(),
+    })
+    return { success: true, data: { engine: result.analysis.engine, hypotheses: result.hypotheses.length } }
+  } catch (err) {
+    console.error(`[analyzeIncident] failed: ${loggableError(err)}`)
+    await patchIncident(tools, incidentId, {
+      analysisStatus: 'failed',
+      analysisError: 'Analysis failed. Try again in a moment.',
+    })
+    return { success: false, error: 'Analysis failed' }
+  }
+}
+
+/**
+ * Swap in the new AI hypotheses and key events. Hypotheses the team has
+ * already acted on (investigating, confirmed, rejected) are kept, and new ones
+ * that duplicate them by title are skipped.
+ */
+async function replaceAiArtifacts(
+  tools: ActionTools,
+  incidentId: string,
+  result: AnalysisResult,
+  hypotheses: Row<Hypothesis>[],
+  timeline: Row<TimelineEvent>[],
+): Promise<void> {
+  const stale = hypotheses.filter((h) => h.data.source === 'ai' && h.data.status === 'open')
+  const kept = new Set(
+    hypotheses.filter((h) => !stale.includes(h)).map((h) => h.data.title.trim().toLowerCase()),
+  )
+  const writes: Promise<ActionResult<unknown>>[] = [
+    ...stale.map((h) => tools.remove('hypotheses', h.recordId)),
+    ...timeline
+      .filter((t) => t.data.source === 'ai' && t.data.kind === 'key-event')
+      .map((t) => tools.remove('timeline-events', t.recordId)),
+    ...result.hypotheses
+      .filter((h) => !kept.has(h.title.trim().toLowerCase()))
+      .map((h) =>
+        tools.create('hypotheses', {
+          incidentId,
+          ...h,
+          status: 'open',
+          source: 'ai',
+        }),
+      ),
+    ...result.keyEvents.map((e) =>
+      tools.create('timeline-events', {
+        incidentId,
+        ...e,
+        kind: 'key-event',
+        source: 'ai',
+      }),
+    ),
+  ]
+  await Promise.all(writes)
+}
