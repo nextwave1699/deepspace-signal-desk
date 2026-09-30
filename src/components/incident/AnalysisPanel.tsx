@@ -17,6 +17,8 @@ import { callAction } from '@/lib/actions-client'
 import { formatDateTime, relativeTime } from '@/lib/format'
 import type { AnalysisSignal, ChecklistItem, Hypothesis, Incident, IncidentAnalysis } from '@/lib/incident-types'
 import { ConfidenceMeter, HypothesisStatusTag } from './badges'
+import { AddHypothesisButton, HypothesisControls } from './HypothesisControls'
+import { useNotes } from './NotesPanel'
 
 export function useHypotheses(incidentId: string) {
   return useQuery<Hypothesis>('hypotheses', { where: { incidentId }, orderBy: 'createdAt', orderDir: 'asc' })
@@ -67,7 +69,7 @@ export function AnalysisPanel({ incident, evidenceCount }: { incident: RecordDat
         </p>
       )}
 
-      {!analysis ? (
+      {!analysis && (
         <div className="rounded-lg border border-dashed border-border px-6 py-10 text-center">
           <Bot className="mx-auto mb-3 size-8 text-muted-foreground" aria-hidden />
           <p className="text-sm font-medium">No analysis yet</p>
@@ -76,17 +78,38 @@ export function AnalysisPanel({ incident, evidenceCount }: { incident: RecordDat
             every hypothesis, what contradicts it, and how confident it is.
           </p>
         </div>
-      ) : (
-        <AnalysisBody incident={incident} analysis={analysis} />
       )}
+      {analysis ? <AnalysisBody incident={incident} analysis={analysis} /> : <HypothesesColumn incident={incident} />}
     </section>
   )
 }
 
-function AnalysisBody({ incident, analysis }: { incident: RecordData<Incident>; analysis: IncidentAnalysis }) {
+function HypothesesColumn({ incident }: { incident: RecordData<Incident> }) {
   const { records: hypotheses } = useHypotheses(incident.recordId)
+  const { records: notes } = useNotes(incident.recordId)
   const ranked = [...hypotheses].sort((a, b) => statusOrder(a.data.status) - statusOrder(b.data.status))
 
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Hypotheses</h3>
+        <AddHypothesisButton incidentId={incident.recordId} />
+      </div>
+      {ranked.length === 0 && <p className="text-sm text-muted-foreground">No hypotheses yet.</p>}
+      {ranked.map((h) => (
+        <HypothesisCard key={h.recordId} hypothesis={h}>
+          <HypothesisControls
+            incident={incident}
+            hypothesis={h}
+            notes={notes.filter((n) => n.data.hypothesisId === h.recordId)}
+          />
+        </HypothesisCard>
+      ))}
+    </div>
+  )
+}
+
+function AnalysisBody({ incident, analysis }: { incident: RecordData<Incident>; analysis: IncidentAnalysis }) {
   return (
     <div className="space-y-4">
       {analysis.notice && (
@@ -128,13 +151,7 @@ function AnalysisBody({ incident, analysis }: { incident: RecordData<Incident>; 
         <div className="hidden items-center xl:flex" aria-hidden>
           <ArrowRight className="size-5 text-muted-foreground" />
         </div>
-        <div className="space-y-3">
-          <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Hypotheses</h3>
-          {ranked.length === 0 && <p className="text-sm text-muted-foreground">No hypotheses yet.</p>}
-          {ranked.map((h) => (
-            <HypothesisCard key={h.recordId} hypothesis={h} />
-          ))}
-        </div>
+        <HypothesesColumn incident={incident} />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">

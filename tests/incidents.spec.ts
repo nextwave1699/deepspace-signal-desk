@@ -118,3 +118,32 @@ test('ask the assistant a question about the incident', async ({ users }) => {
   await expect(page.getByTestId('chat-user')).toContainText('Which dependency is failing?', { timeout: 15_000 })
   await expect(page.getByTestId('chat-assistant')).toContainText(/redis/i, { timeout: 150_000 })
 })
+
+test('track hypotheses and investigation notes', async ({ users }) => {
+  const [alex] = await users(1)
+  const { page } = alex
+
+  await page.goto('/home')
+  await page.getByTestId('new-incident-button').click()
+  await page.getByLabel('Title').fill(`Hypothesis test ${Date.now()}`)
+  await page.getByRole('button', { name: 'Declare incident' }).last().click()
+  await expect(page).toHaveURL(/\/incidents\//, { timeout: 15_000 })
+
+  await page.getByRole('button', { name: 'Add hypothesis' }).first().click()
+  await page.getByLabel('Hypothesis', { exact: true }).fill('Cache stampede after redis failover')
+  await page.getByRole('button', { name: 'Add hypothesis' }).last().click()
+  const card = page.getByTestId('hypothesis-card').filter({ hasText: 'Cache stampede' })
+  await expect(card).toContainText('investigating', { timeout: 15_000 })
+
+  await card.getByRole('button', { name: 'Confirm' }).click()
+  await expect(card).toContainText('confirmed')
+  await expect(page.getByText('Identified').first()).toBeVisible()
+
+  await page.getByRole('tab', { name: 'Investigate' }).click()
+  await page.getByLabel('New note').fill('Redis failover finished at 14:31, hit rate dropped to 3%')
+  await page.getByRole('button', { name: 'Add note' }).click()
+  await expect(page.getByTestId('notes-list')).toContainText('Redis failover finished', { timeout: 15_000 })
+
+  await page.getByRole('tab', { name: 'Timeline' }).click()
+  await expect(page.getByTestId('timeline-list')).toContainText('Root cause confirmed: Cache stampede')
+})

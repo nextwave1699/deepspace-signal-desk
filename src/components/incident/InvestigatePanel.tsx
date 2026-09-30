@@ -6,6 +6,8 @@ import { cn } from '@/lib/utils'
 import { callAction } from '@/lib/actions-client'
 import { relativeTime } from '@/lib/format'
 import type { Incident, IncidentMessage } from '@/lib/incident-types'
+import { useHypotheses } from './AnalysisPanel'
+import { NotesPanel } from './NotesPanel'
 
 const SUGGESTIONS = [
   'What changed right before the first error?',
@@ -15,9 +17,11 @@ const SUGGESTIONS = [
 ]
 
 export function InvestigatePanel({ incident }: { incident: RecordData<Incident> }) {
+  const { records: hypotheses } = useHypotheses(incident.recordId)
   return (
     <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
       <IncidentChat incident={incident} />
+      <NotesPanel incidentId={incident.recordId} hypotheses={hypotheses} />
     </div>
   )
 }
