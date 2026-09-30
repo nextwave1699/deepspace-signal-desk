@@ -2,12 +2,14 @@ import { useParams } from 'react-router-dom'
 import { Radio } from 'lucide-react'
 import { EmptyState, Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui'
 import { IncidentHeader } from '@/components/incident/IncidentHeader'
+import { EvidencePanel } from '@/components/incident/EvidencePanel'
 import { OverviewPanel } from '@/components/incident/OverviewPanel'
-import { useIncident } from '@/hooks/useIncidentWorkspace'
+import { useEvidence, useIncident } from '@/hooks/useIncidentWorkspace'
 
 export default function IncidentPage() {
   const { id = '' } = useParams()
   const { incident, status } = useIncident(id)
+  const { evidence, entries } = useEvidence(id, incident?.data.startedAt)
 
   if (status === 'loading') {
     return <div className="mx-auto mt-10 h-32 max-w-6xl animate-pulse rounded-lg bg-card" />
@@ -29,9 +31,16 @@ export default function IncidentPage() {
       <Tabs defaultValue="overview" className="mx-auto max-w-6xl px-4 py-5 sm:px-6">
         <TabsList className="mb-5">
           <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="evidence">
+            Evidence
+            {evidence.length > 0 && <span className="ml-1.5 text-xs text-muted-foreground">{evidence.length}</span>}
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="overview">
           <OverviewPanel incident={incident} />
+        </TabsContent>
+        <TabsContent value="evidence">
+          <EvidencePanel incident={incident} evidence={evidence} entries={entries} />
         </TabsContent>
       </Tabs>
     </div>
