@@ -22,6 +22,14 @@ test('declare an incident and open its workspace', async ({ users }) => {
 
   await page.getByRole('link', { name: 'All incidents' }).click()
   await expect(page.getByRole('link', { name: new RegExp(title) })).toBeVisible()
+
+  await page.getByLabel('Search incidents').fill(title)
+  await expect(page.getByTestId('incident-list').getByRole('listitem')).toHaveCount(1)
+  await page.getByRole('button', { name: 'SEV1' }).click()
+  await expect(page.getByText('No incidents match these filters')).toBeVisible()
+  await expect(page).toHaveURL(/sev=SEV1/)
+  await page.getByRole('button', { name: 'Reset filters' }).click()
+  await expect(page.getByTestId('incident-stats')).toContainText('Active incidents')
 })
 
 test('paste evidence and filter it down to errors', async ({ users }) => {

@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { AuthOverlay, useAuthProfileReady, useQuery } from 'deepspace'
-import { Plus, Radio } from 'lucide-react'
+import { AuthOverlay, useAuthProfileReady, useQuery, type RecordData } from 'deepspace'
+import { Plus, Radio, SearchX, Sparkles } from 'lucide-react'
 import { Button, EmptyState } from '@/components/ui'
 import { NewIncidentDialog } from '@/components/incident/NewIncidentDialog'
 import { SeverityBadge, StatusPill } from '@/components/incident/badges'
+import { applyIncidentFilters, IncidentFilterBar, useIncidentFilters } from '@/components/incident/IncidentFilters'
+import { IncidentStats } from '@/components/incident/IncidentStats'
 import { relativeTime } from '@/lib/format'
 import type { Incident } from '@/lib/incident-types'
 
@@ -20,6 +22,8 @@ function IncidentDashboard() {
     orderDir: 'desc',
   })
   const [creating, setCreating] = useState(false)
+  const filters = useIncidentFilters()
+  const visible = applyIncidentFilters(records, filters.state)
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
@@ -27,7 +31,7 @@ function IncidentDashboard() {
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Incidents</h1>
           <p className="text-sm text-muted-foreground">
-            Every investigation your team has opened, newest first.
+            Every investigation your team has opened, in one live workspace.
           </p>
         </div>
         <Button onClick={() => setCreating(true)} data-testid="new-incident-button">
@@ -50,30 +54,52 @@ function IncidentDashboard() {
           action={{ label: 'Declare incident', onClick: () => setCreating(true) }}
         />
       ) : (
-        <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
-          {records.map((incident) => (
-            <li key={incident.recordId}>
-              <Link
-                to={`/incidents/${incident.recordId}`}
-                className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 transition-colors hover:bg-accent/50"
-              >
-                <SeverityBadge severity={incident.data.severity} />
-                <span className="min-w-0 flex-1 truncate font-medium">{incident.data.title}</span>
-                {incident.data.service && (
-                  <span className="font-mono text-xs text-muted-foreground">{incident.data.service}</span>
-                )}
-                <StatusPill status={incident.data.status} className="w-28" />
-                <span className="w-20 text-right text-xs text-muted-foreground">
-                  {relativeTime(incident.data.startedAt)}
-                </span>
-              </Link>
-            </li>
-          ))}
-        </ul>
+        <>
+          <IncidentStats incidents={records} />
+          <IncidentFilterBar incidents={records} {...filters} />
+          {visible.length === 0 ? (
+            <EmptyState
+              icon={<SearchX />}
+              title="No incidents match these filters"
+              action={{ label: 'Reset filters', onClick: filters.reset }}
+            />
+          ) : (
+            <IncidentList incidents={visible} />
+          )}
+        </>
       )}
 
       <NewIncidentDialog open={creating} onClose={() => setCreating(false)} />
     </div>
+  )
+}
+
+function IncidentList({ incidents }: { incidents: RecordData<Incident>[] }) {
+  return (
+    <ul
+      className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-card"
+      data-testid="incident-list"
+    >
+      {incidents.map((incident) => (
+        <li key={incident.recordId}>
+          <Link
+            to={`/incidents/${incident.recordId}`}
+            className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 transition-colors hover:bg-accent/50"
+          >
+            <SeverityBadge severity={incident.data.severity} />
+            <span className="min-w-0 flex-1 truncate font-medium">{incident.data.title}</span>
+            {incident.data.service && (
+              <span className="font-mono text-xs text-muted-foreground">{incident.data.service}</span>
+            )}
+            {incident.data.analysis && <Sparkles className="size-3.5 text-primary" aria-label="Analyzed" />}
+            <StatusPill status={incident.data.status} className="w-28" />
+            <span className="w-20 text-right text-xs text-muted-foreground">
+              {relativeTime(incident.data.startedAt)}
+            </span>
+          </Link>
+        </li>
+      ))}
+    </ul>
   )
 }
 
