@@ -1,20 +1,3 @@
-/**
- * Toast Notification System
- *
- * Self-contained toast provider with success/error/warning/info variants.
- * Uses the theme's semantic color tokens (success, warning, info, destructive).
- *
- * @example
- * // Wrap your app once:
- * <ToastProvider position="bottom-right">
- *   <App />
- * </ToastProvider>
- *
- * // In any child component:
- * const { success, error, warning, info } = useToast()
- * success('Saved!', 'Your changes have been saved.')
- */
-
 import React, {
   createContext,
   useContext,
@@ -23,10 +6,6 @@ import React, {
   useEffect,
   type ReactNode,
 } from 'react'
-
-// ============================================================================
-// Types
-// ============================================================================
 
 type ToastType = 'success' | 'error' | 'warning' | 'info'
 
@@ -48,10 +27,6 @@ interface ToastContextValue {
   dismiss: (id: string) => void
   dismissAll: () => void
 }
-
-// ============================================================================
-// Icons (inline SVGs — no external dependency)
-// ============================================================================
 
 function CheckCircleIcon({ className }: { className?: string }) {
   return (
@@ -101,10 +76,6 @@ function CloseIcon({ className }: { className?: string }) {
   )
 }
 
-// ============================================================================
-// Context
-// ============================================================================
-
 const ToastContext = createContext<ToastContextValue | null>(null)
 
 export function useToast(): ToastContextValue {
@@ -112,10 +83,6 @@ export function useToast(): ToastContextValue {
   if (!ctx) throw new Error('useToast must be used within ToastProvider')
   return ctx
 }
-
-// ============================================================================
-// ToastProvider
-// ============================================================================
 
 interface ToastProviderProps {
   children: ReactNode
@@ -201,10 +168,7 @@ export function ToastProvider({
     >
       {children}
 
-      {/* Toast viewport. `pointer-events-none` is load-bearing: this is a
-          fixed z-100 layer over one corner of every page, so without it the
-          container (and every toast in it) silently eats clicks on whatever
-          sits underneath. Each toast re-enables events for itself. */}
+      {/* pointer-events-none keeps this fixed layer from eating clicks underneath. */}
       <div
         className={`pointer-events-none fixed z-[100] flex flex-col gap-2 ${positionClasses[position]}`}
       >
@@ -216,16 +180,6 @@ export function ToastProvider({
   )
 }
 
-// ============================================================================
-// ToastItem
-// ============================================================================
-
-/**
- * Per-type visual config. Body uses the neutral popover surface — the type
- * is conveyed by a thin colored left-edge accent and the icon glyph alone,
- * not by tinting the title text or stamping a chunky colored block behind
- * the icon. Cleaner read; doesn't compete with the page underneath.
- */
 const TOAST_CONFIG = {
   success: { Icon: CheckCircleIcon, accent: 'bg-success', icon: 'text-success' },
   error:   { Icon: AlertCircleIcon, accent: 'bg-destructive', icon: 'text-destructive' },
@@ -242,7 +196,6 @@ function ToastItem({ toast, onDismiss }: ToastItemProps): React.ReactElement {
   const { Icon, accent, icon } = TOAST_CONFIG[toast.type]
   const [exiting, setExiting] = useState(false)
 
-  // Animate out before removing.
   useEffect(() => {
     if (exiting) {
       const timer = setTimeout(onDismiss, 150)
@@ -264,7 +217,6 @@ function ToastItem({ toast, onDismiss }: ToastItemProps): React.ReactElement {
       `}
       role="alert"
     >
-      {/* Colored left-edge accent — the only chrome that reflects the type. */}
       <span className={`absolute inset-y-0 left-0 w-[3px] ${accent}`} aria-hidden />
       <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${icon}`} />
       <div className="flex-1 min-w-0">

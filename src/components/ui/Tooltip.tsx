@@ -3,14 +3,7 @@ import { Tooltip as TooltipPrimitive } from '@base-ui/react/tooltip'
 
 import { cn } from '@/lib/utils'
 
-/**
- * One app-level TooltipProvider (mounted in src/pages/_app.tsx) owns the
- * shared delay AND Base UI's delay grouping — hovering between nearby
- * triggers switches instantly instead of re-waiting the delay each time.
- * Tooltip deliberately does NOT wrap itself in a provider: a per-Tooltip
- * provider would shadow the app-level one (making its `delay` a dead knob)
- * and put every tooltip in its own single-member delay group.
- */
+/** Tooltips share the single TooltipProvider in _app.tsx; do not nest providers. */
 function TooltipProvider({ delay = 200, ...props }: TooltipPrimitive.Provider.Props) {
   return <TooltipPrimitive.Provider data-slot="tooltip-provider" delay={delay} {...props} />
 }

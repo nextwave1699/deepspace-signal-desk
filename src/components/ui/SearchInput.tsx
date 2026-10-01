@@ -11,8 +11,6 @@ export function SearchInput({ className, onClear, value, ...props }: SearchInput
   return (
     <div className="relative">
       <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-      {/* Suppress the native WebKit cancel button — this component ships its
-          own clear button below; without this, Chrome/Safari show both. */}
       <Input
         type="search"
         value={value}

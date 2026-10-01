@@ -1,9 +1,6 @@
 /**
- * HTTP routes that proxy app requests to DeepSpace platform services.
- *
- * The app worker remains the security boundary: caller identity is derived
- * from a verified JWT, caller-supplied identity headers are removed, and app
- * identity is re-asserted only from worker bindings.
+ * Proxies to DeepSpace platform services. Caller identity comes only from a
+ * verified JWT; caller-supplied identity headers are always stripped.
  */
 
 import type { Hono } from 'hono'
@@ -49,11 +46,6 @@ export async function resolveAgentAuth(req: Request, env: Env): Promise<VerifyRe
   return (await verifyAgentToken(jwtConfig(env), token, new URL(req.url).origin)).result
 }
 
-/**
- * Re-assert this app's identity headers on a proxied request, fail-closed.
- * Never forwards caller-supplied identity; attaches ours only when the app
- * has a token (absent pre-first-deploy — see Env.APP_IDENTITY_TOKEN).
- */
 function reassertAppIdentity(headers: Headers, env: Env): void {
   headers.delete('x-app-identity-token')
   headers.delete('x-app-id')
@@ -62,7 +54,6 @@ function reassertAppIdentity(headers: Headers, env: Env): void {
   headers.set('x-app-id', env.DEEPSPACE_APP_ID)
 }
 
-/** Register auth, debug, and integration routes in their required order. */
 export function registerAuthAndIntegrationRoutes(app: Hono<AppContext>): void {
   const nativeAuthOptions = (env: Env): ExpoAuthBridgeOptions => ({
     allowedRedirectUris: (env.NATIVE_AUTH_REDIRECT_URIS ?? '')
@@ -71,16 +62,13 @@ export function registerAuthAndIntegrationRoutes(app: Hono<AppContext>): void {
       .filter(Boolean),
   })
 
-  // Native routes must precede the Better Auth wildcard below. The exact
-  // browser callback handler branches only when the native bridge's validated
-  // redirect_uri is present, so a generated worker cannot shadow native OAuth.
+  // Native routes must precede the auth wildcard below.
   app.get('/api/auth/native-start', (c) => nativeAuthStart(c.req.raw, c.env, nativeAuthOptions(c.env)))
   app.post('/api/auth/native-exchange', (c) => nativeAuthExchange(c.req.raw, c.env))
   app.post('/api/auth/native-token', (c) => nativeAuthToken(c.req.raw, c.env))
   app.get('/api/auth/native-me', (c) => nativeAuthMe(c.req.raw, c.env))
   app.post('/api/auth/native-signout', (c) => nativeAuthSignOut(c.req.raw, c.env))
 
-  // Social OAuth redirect + code exchange.
   app.get('/api/auth/social-redirect', (c) => {
     const provider = c.req.query('provider')
     if (!provider) return c.json({ error: 'Missing provider' }, 400)
@@ -99,9 +87,7 @@ export function registerAuthAndIntegrationRoutes(app: Hono<AppContext>): void {
     }
     const code = c.req.query('code')
     const appOrigin = new URL(c.req.url).origin
-    // Land the signed-in user in the app, not on the static landing. `/` is a
-    // static page (no auth/realtime providers), so redirecting there after auth
-    // would strand the user; `/home` is the dynamic app boundary.
+    // `/` is static (no auth providers), so signed-in users land on /home.
     const appHome = `${appOrigin}/home`
 
     if (!code) return c.redirect(appHome)
@@ -134,8 +120,7 @@ export function registerAuthAndIntegrationRoutes(app: Hono<AppContext>): void {
         body: c.req.method !== 'GET' && c.req.method !== 'HEAD' ? c.req.raw.body : undefined,
       })
     } catch {
-      // Still expire the app-scoped cookie below. A network/auth-worker
-      // failure must not leave the browser immediately signed back in.
+      // Expire the cookie anyway so a failed upstream call cannot keep the user signed in.
     }
 
     return new Response(JSON.stringify({ success: true }), {
@@ -147,7 +132,6 @@ export function registerAuthAndIntegrationRoutes(app: Hono<AppContext>): void {
     })
   })
 
-  // Auth proxy → auth-worker (same-origin cookies).
   app.all('/api/auth/*', async (c) => {
     const url = new URL(c.req.url)
     const res = await authWorkerFetch(c.env, url.pathname + url.search, {
@@ -163,10 +147,6 @@ export function registerAuthAndIntegrationRoutes(app: Hono<AppContext>): void {
     return new Response(res.body, { status: res.status, headers })
   })
 
-  // Debug proxy → app's RecordRoom DO.
-  //
-  // Both this proxy and the DO gate on ALLOW_DEBUG_ROUTES === "true". The app
-  // proxy also requires the existing owner/admin role before reaching the DO.
   app.all('/api/debug/*', async (c) => {
     if (c.env.ALLOW_DEBUG_ROUTES !== 'true') {
       return c.notFound()
@@ -179,11 +159,9 @@ export function registerAuthAndIntegrationRoutes(app: Hono<AppContext>): void {
     const stub = c.env.RECORD_ROOMS.get(
       c.env.RECORD_ROOMS.idFromName(`app:${c.env.DEEPSPACE_APP_ID}`),
     )
-    // Forward verbatim: the DO dispatches on the original pathname.
     return stub.fetch(c.req.raw)
   })
 
-  // Integrations proxy → api-worker.
   app.get('/api/integrations', async (c) => {
     try {
       const res = await apiWorkerFetch(c.env, '/api/integrations')
@@ -242,8 +220,7 @@ export function registerAuthAndIntegrationRoutes(app: Hono<AppContext>): void {
       'Content-Type': c.req.header('Content-Type') ?? 'application/json',
     }
 
-    // The api-worker bills the JWT subject: developer mode uses the app owner;
-    // user mode forwards the caller. There is no client billing override.
+    // The api-worker bills the JWT subject, so billing mode picks which JWT to send.
     if (billingMode === 'developer') {
       headers['Authorization'] = `Bearer ${c.env.APP_OWNER_JWT}`
     } else {
@@ -251,8 +228,6 @@ export function registerAuthAndIntegrationRoutes(app: Hono<AppContext>): void {
       if (token) headers['Authorization'] = `Bearer ${token}`
     }
 
-    // Identify this app for per-app integrations. Pre-first-deploy there is no
-    // token, so omit both headers and let the api-worker fail closed.
     if (c.env.APP_IDENTITY_TOKEN) {
       headers['x-app-identity-token'] = c.env.APP_IDENTITY_TOKEN
       headers['x-app-id'] = c.env.DEEPSPACE_APP_ID
@@ -274,14 +249,10 @@ export function registerAuthAndIntegrationRoutes(app: Hono<AppContext>): void {
   })
 }
 
-/** Register scoped-file and authenticated browser-to-platform proxies. */
 export function registerPlatformProxyRoutes(app: Hono<AppContext>): void {
-  // Scoped R2 files → platform-worker. The app has no local R2 binding; the
-  // platform bucket scopes keys to the verified app and, by default, user.
   app.all('/api/files/*', async (c) => {
-    // A same-origin GET/HEAD with no bearer is identified by the app-origin
-    // session cookie, so a private file URL renders in <img>/<audio>/<video>.
-    // The fallback lives here, not in resolveAuth, which also gates writes.
+    // Cookie fallback lets private files render in <img>/<video>; it stays out
+    // of resolveAuth because that also gates writes.
     const auth =
       (await resolveAuth(c.req.raw, c.env)) ?? (await resolveSessionReadAuth(c.req.raw, c.env))
     const userId = auth?.userId ?? null
@@ -291,8 +262,7 @@ export function registerPlatformProxyRoutes(app: Hono<AppContext>): void {
     platformUrl.pathname = url.pathname.replace('/api/files', '/internal/files')
 
     const headers = new Headers(c.req.raw.headers)
-    // platform-worker trusts x-user-id after app HMAC validation. Always remove
-    // caller input and derive it from the verified JWT.
+    // platform-worker trusts x-user-id, so it must only ever come from the verified JWT.
     headers.delete('x-user-id')
     reassertAppIdentity(headers, c.env)
     if (userId) headers.set('x-user-id', userId)
@@ -306,8 +276,6 @@ export function registerPlatformProxyRoutes(app: Hono<AppContext>): void {
       }),
     )
 
-    // Rewrite platform URLs in JSON responses to use the app's origin (a HEAD
-    // answer has the content-type but no body).
     const contentType = resp.headers.get('content-type') ?? ''
     if (contentType.includes('application/json') && c.req.method !== 'HEAD') {
       const body = (await resp.json()) as Record<string, unknown>
@@ -324,8 +292,7 @@ export function registerPlatformProxyRoutes(app: Hono<AppContext>): void {
     return new Response(resp.body, { status: resp.status, headers: resp.headers })
   })
 
-  // Same-origin browser proxy for authenticated SDK hooks. Keep this an exact
-  // (method, path) allowlist: prefix matching would expose deploy/CLI routes.
+  // Exact (method, path) allowlist: prefix matching would expose deploy/CLI routes.
   app.all('/_deepspace/*', async (c) => {
     const url = new URL(c.req.url)
     const method = c.req.method
@@ -339,7 +306,6 @@ export function registerPlatformProxyRoutes(app: Hono<AppContext>): void {
     const auth = await resolveAuth(c.req.raw, c.env)
     if (!auth?.userId) return c.json({ error: 'unauthorized' }, 401)
 
-    // Always overwrite caller input with this worker's immutable app id.
     const forwardedParams = new URLSearchParams(url.search)
     forwardedParams.set('appId', c.env.DEEPSPACE_APP_ID)
     const queryString = forwardedParams.toString()
@@ -362,41 +328,20 @@ export function registerPlatformProxyRoutes(app: Hono<AppContext>): void {
 const matches = (pathname: string, prefixes: readonly string[]): boolean =>
   prefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))
 
-/**
- * An unmatched API call must 404 without consulting the asset layer at all —
- * answering it with a static file, or with HTML a client then parses as JSON,
- * is never right.
- */
 const API_PREFIXES = ['/api']
 
-/**
- * The plain SPA shell prerender.ts (app root) writes beside the prerendered
- * pages: the built index.html with #root still empty. Extensionless, so the
- * asset layer's auto-trailing-slash serves `_spa.html` at it.
- */
+/** Empty app shell written by prerender.ts, served for client routes. */
 const SPA_SHELL_PATH = '/_spa'
 
-/**
- * A FILE, not a client route: last segment carries an extension. Wrong in only
- * the cheap direction — a dotted route 404s visibly, where a missing file
- * getting the shell is HTML parsed as JavaScript and a blank page.
- */
+/** A path whose last segment has an extension is a file, never a client route. */
 function namesAFile(pathname: string): boolean {
   const last = pathname.slice(pathname.lastIndexOf('/') + 1)
   return last.includes('.')
 }
 
-/**
- * Register the client-route fallback last so it cannot shadow worker routes.
- * Deploys set `not_found_handling: "none"`, so a 404 from the binding is a
- * real miss and this worker makes the call the asset layer cannot.
- */
+/** Register last so the client-route fallback cannot shadow worker routes. */
 export function registerStaticRoutes(app: Hono<AppContext>): void {
-  // The API guard is METHOD-AGNOSTIC and sits ahead of the GET fallback, so a
-  // POST/PUT/DELETE to a mistyped or rolled-back API route gets the same JSON
-  // 404 a GET does — Hono's default would answer it with plain text, which is
-  // precisely the "text parsed as JSON" failure this guard exists to prevent.
-  // Every non-API path falls through to the asset handling below.
+  // Unknown API calls of any method get a JSON 404, never HTML or plain text.
   app.all('*', async (c, next) => {
     if (matches(new URL(c.req.url).pathname, API_PREFIXES)) {
       return c.json({ error: 'not_found' }, 404)
@@ -412,16 +357,10 @@ export function registerStaticRoutes(app: Hono<AppContext>): void {
     if (namesAFile(url.pathname) || isPlatformReservedPath(url.pathname)) {
       return c.json({ error: 'not_found' }, 404)
     }
-    // Once the prerender has run, `/` is the landing page, not an empty
-    // shell — serving it for /home would paint the landing for a frame and
-    // hand crawlers the `/` canonical on every app route. Ask for the plain
-    // shell the build writes first; a build without it (plain SPA,
-    // `deepspace dev`) misses and falls through to `/` exactly as before.
+    // `/` is the prerendered landing, so prefer the empty shell for app routes.
     url.pathname = SPA_SHELL_PATH
     const shell = await c.env.ASSETS.fetch(new Request(url.toString(), c.req.raw))
     if (shell.status !== 404) return shell
-    // `/`, not `/index.html`: auto-trailing-slash redirects the explicit
-    // filename, and the browser would follow it off the URL it asked for.
     url.pathname = '/'
     return c.env.ASSETS.fetch(new Request(url.toString(), c.req.raw))
   })

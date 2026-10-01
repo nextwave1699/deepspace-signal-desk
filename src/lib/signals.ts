@@ -365,7 +365,6 @@ export function parseEvidenceSources(sources: EvidenceSource[], referenceDate?: 
   )
 }
 
-/** Guess an evidence kind from pasted or uploaded content. */
 export function detectEvidenceKind(content: string, fileName = ''): EvidenceKind {
   const name = fileName.toLowerCase()
   if (name.endsWith('.csv')) return 'csv'

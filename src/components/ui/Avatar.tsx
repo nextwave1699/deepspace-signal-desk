@@ -2,15 +2,6 @@ import { Avatar as AvatarPrimitive } from '@base-ui/react/avatar'
 
 import { cn } from '@/lib/utils'
 
-/**
- * Avatar — thin wrappers over Base UI's Avatar primitives.
- *
- * Base UI owns the image load-status machine: the fallback shows while the
- * image loads or when it errors / has no src, and — unlike a hand-rolled
- * onLoad listener — it correctly handles images already in the browser cache
- * (no blank avatar sitting over the initials). Compose Image + Fallback
- * inside Root.
- */
 function Avatar({ className, ...props }: AvatarPrimitive.Root.Props) {
   return (
     <AvatarPrimitive.Root

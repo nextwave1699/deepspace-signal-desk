@@ -189,7 +189,6 @@ export function selectExcerpt(lines: string[]): string[] {
   return out
 }
 
-/** A bounded, model-ready digest of an incident and its evidence. */
 export function buildEvidenceDigest(
   incident: Incident,
   sources: (Evidence & { id: string })[],

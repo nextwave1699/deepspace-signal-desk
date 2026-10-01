@@ -13,18 +13,8 @@ interface CheckboxProps
   onCheckedChange?: (checked: boolean) => void
 }
 
-/**
- * Checkbox — wraps Base UI's Checkbox. Base UI owns the controlled/uncontrolled
- * toggle, keyboard/ARIA, and the hidden form input (rendered as a sibling, not
- * illegally nested in the button). We keep the Radix-style `checked` API that
- * accepts `'indeterminate'`, mapping it onto Base UI's separate `indeterminate`
- * flag.
- */
+/** Base UI checkbox with a Radix-style `checked` that accepts 'indeterminate'. */
 function Checkbox({ className, checked, defaultChecked, onCheckedChange, ...props }: CheckboxProps) {
-  // Mixed state, both modes (Radix semantics): controlled comes straight from
-  // `checked`; uncontrolled starts mixed via `defaultChecked="indeterminate"`
-  // and clears on the first user toggle. Deriving it from `checked` alone
-  // would silently render an uncontrolled mixed checkbox as plain unchecked.
   const [uncontrolledIndeterminate, setUncontrolledIndeterminate] = useState(
     checked === undefined && defaultChecked === 'indeterminate',
   )

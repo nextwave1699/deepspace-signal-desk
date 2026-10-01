@@ -1,9 +1,3 @@
-/**
- * Admin Feature - Schema
- *
- * Admin-only settings collection for key-value app configuration.
- */
-
 import type { CollectionSchema } from 'deepspace/schema'
 
 export const settingsSchema: CollectionSchema = {

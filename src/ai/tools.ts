@@ -1,10 +1,6 @@
 /**
- * AI Tool Definitions — converts DeepSpace BUILT_IN_TOOLS to Vercel AI SDK tools.
- *
- * The assistant can read AND modify data. Per-collection RBAC at the DO
- * layer is the actual security boundary — the user's role determines what
- * each tool call is allowed to do, regardless of what's in this allowlist.
- * Trim entries below if you want a stricter assistant for your app.
+ * DeepSpace built-in tools exposed to assistants. Tool calls run as the
+ * calling user, so collection RBAC remains the security boundary.
  */
 
 import { jsonSchema, tool } from 'ai'
@@ -26,17 +22,8 @@ const ALLOWED_TOOL_NAMES = [
   'user.current',
 ]
 
-// ============================================================================
-// System prompt
-// ============================================================================
-
 type Interpretation = CollectionSchema['columns'][number]['interpretation']
 
-/**
- * Interpretation is `string | Record<string, unknown>`. When it's an object
- * the convention across the SDK's schemas is `{ kind: string, ... }`.
- * Narrow safely to a human-readable name.
- */
 function interpretationLabel(interpretation: Interpretation): string {
   if (typeof interpretation === 'string') return interpretation
   const kind = interpretation.kind
@@ -73,10 +60,6 @@ export function buildSystemPrompt(appName: string, schemas: CollectionSchema[]):
   ].join('\n')
 }
 
-// ============================================================================
-// Tool definitions
-// ============================================================================
-
 export function buildTools(executor: ToolExecutor): ToolSet {
   const tools: ToolSet = {}
 
@@ -86,9 +69,6 @@ export function buildTools(executor: ToolExecutor): ToolSet {
     tools[safeName] = tool({
       description: def.description,
       inputSchema: buildInputSchema(def),
-      // Apply assistant-only param defaults (e.g. records.query page size) here
-      // in the AI tool layer, so internal record readers that hit the tools
-      // dispatch directly stay unbounded.
       execute: async (params: Record<string, unknown>) =>
         executor(def.name, applyAiToolDefaults(def.name, params)),
     })
@@ -97,16 +77,9 @@ export function buildTools(executor: ToolExecutor): ToolSet {
   return tools
 }
 
-// ============================================================================
-// Convert ToolSchema params → Zod validator + derived provider JSON Schema
-// ============================================================================
-
 /**
- * The Zod validator is the single source; the provider-facing JSON Schema is
- * derived from it with Zod's native conversion, which keeps z.record()
- * objects open (`additionalProperties: {}`). The AI SDK's own Zod conversion
- * closes every object, which would incorrectly advertise the free-form
- * `data` and `where` objects as empty — so the conversion happens here.
+ * Converts with Zod's own JSON Schema output because the AI SDK's conversion
+ * closes z.record() objects, advertising free-form `data`/`where` as empty.
  */
 function buildInputSchema(def: ToolSchema) {
   const shape: Record<string, z.ZodTypeAny> = {}

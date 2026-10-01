@@ -1,12 +1,4 @@
-/**
- * Top nav — minimal placeholder bar wired to the app's mechanisms:
- * nav.ts-driven links (with role/dev filtering), sign-in via <AuthOverlay>,
- * and sign-out. Restyle or rebuild it freely; keep the data-testid hooks
- * (`app-navigation`, `nav-sign-in-button`, `nav-user-name`, `nav-user-email`)
- * — the shipped tests rely on them. `nav-user-email` is the one that carries
- * an identity the test can check exactly: a display name is optional, the
- * email is the credential the session was opened with.
- */
+// Tests rely on the app-navigation and nav-* data-testid hooks.
 
 import { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
@@ -37,7 +29,6 @@ export default function Navigation() {
   const profileReady = !isSignedIn || (!userLoading && !!user)
   const userRole = (user?.role ?? 'anonymous') as Role | 'anonymous'
 
-  // Close the mobile menu when navigating
   useEffect(() => {
     setMobileMenuOpen(false)
   }, [location.pathname])
@@ -85,8 +76,6 @@ export default function Navigation() {
           <div className="flex-1" />
 
           {!isLoaded ? null : isSignedIn && !profileReady ? (
-            /* Signed in, profile still loading — skeleton pill, never the
-               Sign in button (that would offer sign-in to a signed-in user). */
             <div className="flex items-center gap-2 rounded-full border border-border bg-card/60 py-1 pl-1 pr-2.5">
               <div className="h-6 w-6 animate-pulse rounded-full bg-muted" />
               <div className="hidden h-4 w-20 animate-pulse rounded-md bg-muted sm:block" />
